@@ -51,6 +51,11 @@ export default function App() {
     };
   }, []);
 
+  // Ensure scroll is instantly and cleanly reset to the very top after the tab renders
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [currentTab]);
+
   // Regenerate 6 numbers
   const handleRegenerate = useCallback(() => {
     setCurrentNumbers(generateLottoNumbers());
@@ -99,13 +104,15 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex flex-col font-sans selection:bg-[#2563eb]/20 selection:text-[#004ac6]">
+    <div
+      className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex flex-col font-sans selection:bg-[#2563eb]/20 selection:text-[#004ac6]"
+      style={{ overflowAnchor: 'none' }}
+    >
       {/* Top Application Header */}
       <Header
         currentTab={currentTab}
         onSelectTab={(tab) => {
           setCurrentTab(tab);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         savedCount={savedList.length}
       />
@@ -119,7 +126,6 @@ export default function App() {
             onSave={handleSave}
             onNavigateToSaved={() => {
               setCurrentTab('saved');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             isSaving={isSaving}
             saveFeedback={saveFeedback}
@@ -130,7 +136,6 @@ export default function App() {
             savedList={savedList}
             onBackToGenerator={() => {
               setCurrentTab('generator');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onDelete={handleDelete}
             isLoading={isLoadingSaved}
@@ -144,7 +149,6 @@ export default function App() {
           <button
             onClick={() => {
               setCurrentTab('generator');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`flex flex-col items-center justify-center gap-0.5 transition-colors ${
               currentTab === 'generator' ? 'text-[#2563eb] font-bold' : 'text-slate-500'
@@ -157,7 +161,6 @@ export default function App() {
           <button
             onClick={() => {
               setCurrentTab('saved');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`relative flex flex-col items-center justify-center gap-0.5 transition-colors ${
               currentTab === 'saved' ? 'text-[#2563eb] font-bold' : 'text-slate-500'
