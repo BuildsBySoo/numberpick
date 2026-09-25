@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { ChatMessage } from '../types';
+import { getIdToken } from '../lib/firebase';
+
 
 interface AIChatBoxProps {
   contextNumbers: number[];
@@ -149,10 +151,8 @@ export const AIChatBox: React.FC<AIChatBoxProps> = ({
     if (!textToSend) setInputText('');
     setIsLoading(true);
 
-    // Realistic typing delay
-    setTimeout(() => {
-      if (simulateError) {
-        // Simulated error state
+    if (simulateError) {
+      setTimeout(() => {
         const errorMsg: ChatMessage = {
           id: 'msg-err-' + Date.now(),
           sender: 'assistant',
@@ -163,9 +163,38 @@ export const AIChatBox: React.FC<AIChatBoxProps> = ({
         };
         setMessages((prev) => [...prev, errorMsg]);
         setIsLoading(false);
-        return;
+      }, 650);
+      return;
+    }
+
+    try {
+      const idToken = await getIdToken();
+      const res = await fetch('https://raychat-276911491430.us-central1.run.app', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ message: text, numbers: contextNumbers }),
+      });
+
+      if (!res.ok) {
+        throw new Error('rayChat request failed: ' + res.status);
       }
 
+      const data = await res.json();
+      const assistantMsg: ChatMessage = {
+        id: 'msg-ai-' + Date.now(),
+        sender: 'assistant',
+        text: data.reply || '답변을 생성하지 못했습니다.',
+        timestamp: Date.now(),
+        status: 'delivered',
+        contextNumbers: [...contextNumbers],
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      console.warn('rayChat call failed, falling back to local analysis:', err);
       const { reply, followUps } = generateSimulatedResponse(text, contextNumbers);
       const assistantMsg: ChatMessage = {
         id: 'msg-ai-' + Date.now(),
@@ -176,11 +205,12 @@ export const AIChatBox: React.FC<AIChatBoxProps> = ({
         contextNumbers: [...contextNumbers],
         suggestedFollowUps: followUps,
       };
-
       setMessages((prev) => [...prev, assistantMsg]);
+    } finally {
       setIsLoading(false);
-    }, 650);
+    }
   };
+    
 
   const handleRetry = () => {
     setSimulateError(false);
