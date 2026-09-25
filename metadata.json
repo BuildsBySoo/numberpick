@@ -1,0 +1,6 @@
+{
+  "name": "NumberPick - 로또 번호 추첨 및 보관함",
+  "description": "1~45 무작위 로또 번호 생성, Firestore 실시간 번호 조합 보관 및 AI 대화형 분석 UI를 제공하는 NumberPick 서비스입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
