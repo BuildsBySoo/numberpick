@@ -7,9 +7,7 @@ import {
   doc,
   query,
   where,
-  orderBy,
   onSnapshot,
-  getDocs,
   serverTimestamp,
   type Firestore,
 } from 'firebase/firestore';
@@ -42,17 +40,37 @@ try {
 }
 
 // Initialize Auth
-let auth: Auth;
-try {
-  auth = getAuth(app);
-  signInAnonymously(auth).catch((err) => {
-    console.warn('Anonymous auth sign-in notice:', err);
-  });
-} catch (e) {
-  console.warn('Auth init notice:', e);
-}
+const auth: Auth = getAuth(app);
 
-// Device identifier to isolate user lists across sessions
+// ---- 여기부터 새로 추가된 부분: uid가 준비될 때까지 기다리는 장치 ----
+let currentUid: string | null = null;
+let resolveUidReady: (uid: string) => void;
+const uidReady: Promise<string> = new Promise((resolve) => {
+  resolveUidReady = resolve;
+});
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentUid = user.uid;
+    resolveUidReady(user.uid);
+  }
+});
+
+signInAnonymously(auth).catch((err) => {
+  console.warn('Anonymous auth sign-in notice:', err);
+});
+
+/**
+ * 현재 로그인된(익명) 사용자의 uid를 반환합니다.
+ * 아직 발급 전이면 발급될 때까지 기다립니다.
+ */
+async function getUid(): Promise<string> {
+  if (currentUid) return currentUid;
+  return uidReady;
+}
+// ---- 여기까지 새로 추가된 부분 ----
+
+// Device identifier (기존 캐시 호환용으로만 남겨둠, 보안 판단에는 더 이상 사용 안 함)
 const DEVICE_KEY = 'numberpick_device_id';
 const LOCAL_STORAGE_KEY = 'numberpick_saved_combinations_cache';
 
@@ -94,7 +112,6 @@ export async function saveCombinationToFirestore(
   numbers: number[],
   label?: string
 ): Promise<SavedCombination> {
-  const deviceId = getOrCreateDeviceId();
   const sortedNumbers = [...numbers].sort((a, b) => a - b);
   const now = Date.now();
 
@@ -106,13 +123,14 @@ export async function saveCombinationToFirestore(
   };
 
   try {
+    const uid = await getUid(); // ← uid가 준비될 때까지 기다림
     const colRef = collection(db, 'saved_numbers');
     const docRef = await addDoc(colRef, {
       numbers: sortedNumbers,
       createdAt: serverTimestamp(),
       createdMillis: now,
       label: tempItem.label,
-      deviceId: deviceId,
+      ownerUid: uid, // ← 새로 추가된 필드
     });
 
     const savedItem: SavedCombination = {
@@ -120,14 +138,12 @@ export async function saveCombinationToFirestore(
       id: docRef.id,
     };
 
-    // Update local cache
     const current = getLocalCache().filter((c) => c.id !== savedItem.id);
     setLocalCache([savedItem, ...current]);
 
     return savedItem;
   } catch (err) {
     console.warn('Firestore write fallback to local cache:', err);
-    // Even if firestore errors (network/offline), keep local cache updated
     const current = getLocalCache();
     setLocalCache([tempItem, ...current]);
     return tempItem;
@@ -138,7 +154,6 @@ export async function saveCombinationToFirestore(
  * Delete combination from Firestore
  */
 export async function deleteCombinationFromFirestore(id: string): Promise<void> {
-  // Update local cache immediately
   const filtered = getLocalCache().filter((c) => c.id !== id);
   setLocalCache(filtered);
 
@@ -160,50 +175,53 @@ export async function deleteCombinationFromFirestore(id: string): Promise<void> 
 export function subscribeToSavedCombinations(
   callback: (items: SavedCombination[]) => void
 ): () => void {
-  const deviceId = getOrCreateDeviceId();
-
-  // Send local cache first for instant initial render
   const initialCache = getLocalCache();
   if (initialCache.length > 0) {
     callback(initialCache);
   }
 
-  try {
-    const colRef = collection(db, 'saved_numbers');
-    const q = query(colRef, where('deviceId', '==', deviceId));
+  let unsubscribeFn: () => void = () => {};
+  let cancelled = false;
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items: SavedCombination[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const millis = data.createdMillis || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
-          items.push({
-            id: docSnap.id,
-            numbers: data.numbers || [],
-            createdAt: millis,
-            label: data.label || '조합',
+  getUid()
+    .then((uid) => {
+      if (cancelled) return;
+      const colRef = collection(db, 'saved_numbers');
+      const q = query(colRef, where('ownerUid', '==', uid)); // ← deviceId 대신 ownerUid
+
+      unsubscribeFn = onSnapshot(
+        q,
+        (snapshot) => {
+          const items: SavedCombination[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            const millis =
+              data.createdMillis || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
+            items.push({
+              id: docSnap.id,
+              numbers: data.numbers || [],
+              createdAt: millis,
+              label: data.label || '조합',
+            });
           });
-        });
 
-        // Sort descending by creation date
-        items.sort((a, b) => b.createdAt - a.createdAt);
+          items.sort((a, b) => b.createdAt - a.createdAt);
+          setLocalCache(items);
+          callback(items);
+        },
+        (error) => {
+          console.warn('Firestore onSnapshot listener fallback:', error);
+          callback(getLocalCache());
+        }
+      );
+    })
+    .catch((e) => {
+      console.warn('Firestore subscription setup error:', e);
+      callback(getLocalCache());
+    });
 
-        // Keep local cache in sync
-        setLocalCache(items);
-        callback(items);
-      },
-      (error) => {
-        console.warn('Firestore onSnapshot listener fallback:', error);
-        callback(getLocalCache());
-      }
-    );
-
-    return unsubscribe;
-  } catch (e) {
-    console.warn('Firestore subscription setup error:', e);
-    callback(getLocalCache());
-    return () => {};
-  }
+  return () => {
+    cancelled = true;
+    unsubscribeFn();
+  };
 }
