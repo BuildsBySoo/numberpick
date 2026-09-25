@@ -38,9 +38,21 @@ export const AIChatBox: React.FC<AIChatBoxProps> = ({
     setMessages([initialGreeting]);
   }, [contextNumbers.join(',')]);
 
-  // Auto scroll to latest message
+  // Auto scroll to latest message within the chat scroll container ONLY
+  // (Prevents scrollIntoView from scrolling window/page on mount or tab switch)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Skip auto-scrolling if there is only the initial greeting message
+    if (messages.length <= 1 && !isLoading) {
+      return;
+    }
+
+    const container = messagesEndRef.current?.parentElement;
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, [messages, isLoading]);
 
   // Generate realistic simulated AI response based on context numbers
