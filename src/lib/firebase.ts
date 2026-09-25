@@ -68,6 +68,19 @@ async function getUid(): Promise<string> {
   if (currentUid) return currentUid;
   return uidReady;
 }
+
+/**
+ * rayChat 서버 호출에 쓸 Firebase ID 토큰을 반환합니다.
+  * 아직 로그인(익명) 전이면 완료될 때까지 기다립니다.
+   */
+export async function getIdToken(): Promise<string> {
+  await getUid();
+  if (!auth.currentUser) {
+    throw new Error('No authenticated user');
+  }
+  return auth.currentUser.getIdToken();
+}
+
 // ---- 여기까지 새로 추가된 부분 ----
 
 // Device identifier (기존 캐시 호환용으로만 남겨둠, 보안 판단에는 더 이상 사용 안 함)
